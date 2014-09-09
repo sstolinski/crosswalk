@@ -30,6 +30,7 @@ import org.chromium.content.browser.ResourceExtractor;
 import org.chromium.content.browser.ResourceExtractor.ResourceIntercepter;
 import org.chromium.net.NetworkChangeNotifier;
 
+
 @JNINamespace("xwalk")
 class XWalkViewDelegate {
     private static boolean sInitialized = false;
@@ -105,18 +106,27 @@ class XWalkViewDelegate {
             CommandLine.init(readCommandLine(context.getApplicationContext()));
         }
 
-        // If context's applicationContext is not the same package with itself,
-        // It's a cross package invoking, load core library from library apk.
-        // Only load the native library from /data/data if the Android version is
-        // lower than 4.2. Android enables a system path /data/app-lib to store native
-        // libraries starting from 4.2 and load them automatically.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1 &&
-                !context.getApplicationContext().getPackageName().equals(context.getPackageName())) {
+        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
+        String appDataDir = PathUtils.getDataDirectory(context.getApplicationContext());
+        if (XWalkCompressUtil.decompressNativeLibrary(context.getApplicationContext(), MANDATORY_LIBRARIES, appDataDir)) {
+            // Load library from the decompressed path (APP_DATA path).
             for (String library : MANDATORY_LIBRARIES) {
-                System.load("/data/data/" + context.getPackageName() + "/lib/" + library);
+                System.load(appDataDir + "/" + library);
             }
+        } else {
+            // If context's applicationContext is not the same package with itself,
+            // It's a cross package invoking, load core library from library apk.
+            // Only load the native library from /data/data if the Android version is
+            // lower than 4.2. Android enables a system path /data/app-lib to store native
+            // libraries starting from 4.2 and load them automatically.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1 &&
+                    !context.getApplicationContext().getPackageName().equals(context.getPackageName())) {
+                for (String library : MANDATORY_LIBRARIES) {
+                    System.load("/data/data/" + context.getPackageName() + "/lib/" + library);
+                }
+            }
+            loadLibrary(context);
         }
-        loadLibrary(context);
 
         if (sRunningOnIA && !nativeIsLibraryBuiltForIA()) {
             throw new UnsatisfiedLinkError();
@@ -167,7 +177,6 @@ class XWalkViewDelegate {
     }
 
     private static void loadLibrary(Context context) {
-        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
         try {
             LibraryLoader.loadNow(context, true);
         } catch (ProcessInitException e) {
